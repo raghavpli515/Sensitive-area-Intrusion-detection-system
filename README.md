@@ -1,5 +1,8 @@
 # Sensitive-Area Intrusion Detection System
 
+[![CI](https://github.com/raghavpli515/Sensitive-area-Intrusion-detection-system/actions/workflows/ci.yml/badge.svg)](https://github.com/raghavpli515/Sensitive-area-Intrusion-detection-system/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A computer-vision system for detecting intrusions into restricted/sensitive
 areas — perimeter fences, border zones, restricted facilities — from
 surveillance footage or a live camera. It combines a fine-tuned **YOLOv8**
