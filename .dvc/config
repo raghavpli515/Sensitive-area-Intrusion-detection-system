@@ -1,0 +1,4 @@
+[core]
+    remote = gdrive_rclone
+['remote "gdrive_rclone"']
+    url = ../rclone:gdrive_rclone:MyAwesomeIDS

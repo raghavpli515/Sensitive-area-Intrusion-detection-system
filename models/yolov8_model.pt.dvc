@@ -1,0 +1,5 @@
+outs:
+- md5: d78aa70307f53125c8660d3d8c8c6a64
+  size: 108212681
+  hash: md5
+  path: yolov8_model.pt

@@ -1,0 +1,80 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Virtual environments ---
+.venv/
+venv/
+IDS_env/
+
+# --- Secrets / local env ---
+.env
+!.env.example
+
+# --- OS / editor ---
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# --- Node / frontend build ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- Data & model binaries (DVC-managed; keep the pointer files) ---
+data
+!data/*.dvc
+!data/**/*.dvc
+*.pt
+*.pth
+*.h5
+*.onnx
+!**/*.pt.dvc
+*.mp4
+*.csv
+*.tsv
+*.zip
+*.tar.gz
+
+# --- DVC internal cache/tmp (config + pointer files stay tracked) ---
+.dvc/cache/
+.dvc/tmp/
+.dvc/config.local
+
+# --- Training/experiment scratch (kept locally, summarized in README + docs/assets) ---
+experiments/
+scraped_data/
+IDS_Training/
+Notebooks/
+
+# --- Runtime output / upload scratch ---
+# (data/ and outputs/ are already covered by the `data` rule above and the
+# line below; both dirs are created automatically at startup by
+# backend/app/core/config.py, so there's nothing to track here.)
+outputs/
+
+# --- Keep the small committed test fixture despite the *.mp4 rule above ---
+!backend/samples/test_video.mp4
+
+# --- Native/binary safety net ---
+*.dll
+*.lib
+*.pyd
+*.so
+*.exe
+*.bin
+
+
+important.txt
