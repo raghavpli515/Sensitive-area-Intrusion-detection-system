@@ -60,6 +60,20 @@ and won't work across multiple backend replicas. A real deployment would
 swap it for Celery/RQ + Redis behind the same three-method interface
 (`create`, `get`, `run_in_background`), without touching the API routes.
 
+**Output video is re-encoded to real H.264, not served as OpenCV writes it.**
+`cv2.VideoWriter` with fourcc `mp4v` produces MPEG-4 Part 2 — a valid mp4
+file that downloads and even plays in some desktop players, but that
+Chrome/Firefox/Safari's native `<video>` element silently refuses to decode
+(they require H.264/AVC, VP8/9, or AV1). This was caught by actually running
+the finished stack end-to-end: jobs completed successfully and alerts
+populated correctly, but the browser showed no playable video — a real bug
+that unit tests and API-contract tests alone couldn't have caught, since
+both the file and the API response were "correct." `run_video_job` now
+writes to a temporary file, then re-encodes with `ffmpeg -vcodec libx264`
+(`services/pipeline._transcode_to_browser_compatible_mp4`) before serving
+it. If `ffmpeg` is missing, the job fails loudly with a clear error instead
+of silently shipping an unplayable file.
+
 **Zone/line geometry scales with frame size.** The restricted-zone polygon
 and perimeter line in `RuleConfig` are fractions of frame width/height, not
 absolute pixels, so the same config works for a 640×360 webcam and a

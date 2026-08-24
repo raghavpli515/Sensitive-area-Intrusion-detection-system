@@ -5,6 +5,8 @@ Both the batch video-upload path (`api/video.py`) and the live WebSocket path
 """
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import cv2
@@ -91,7 +93,16 @@ def run_video_job(job, input_path: Path, output_path: Path, confidence_threshold
     job.total_frames = total_frames
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    # OpenCV's own encoder writes here first; see _transcode_to_browser_compatible_mp4
+    # for why this can't be the file we actually serve.
+    raw_path = output_path.with_suffix(".raw.mp4")
+    writer = cv2.VideoWriter(str(raw_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        cap.release()
+        raise RuntimeError(
+            f"Could not open a video writer for '{raw_path}' — the OpenCV build "
+            "on this machine may be missing codec support."
+        )
 
     frame_id = 0
     try:
@@ -114,4 +125,37 @@ def run_video_job(job, input_path: Path, output_path: Path, confidence_threshold
         cap.release()
         writer.release()
 
+    _transcode_to_browser_compatible_mp4(raw_path, output_path)
+    raw_path.unlink(missing_ok=True)
     job.output_path = output_path
+
+
+def _transcode_to_browser_compatible_mp4(raw_path: Path, output_path: Path) -> None:
+    """Re-encode to real H.264.
+
+    `cv2.VideoWriter_fourcc(*"mp4v")` writes MPEG-4 Part 2 (fourcc 'mp4v') —
+    a valid, playable video file, but not one Chrome/Firefox/Safari's native
+    <video> element will decode; browsers only play H.264/AVC, VP8/9, or AV1
+    inside an mp4/webm container. Without this step the job completes and the
+    file downloads fine, but the frontend's <video> tag silently shows
+    nothing — the bug this function fixes.
+    """
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError(
+            "ffmpeg is required to produce a browser-playable video but was not "
+            "found on PATH. Install it (the backend Docker image already does; "
+            "for local dev install ffmpeg and ensure it's on PATH)."
+        )
+
+    result = subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", str(raw_path),
+            "-vcodec", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not output_path.exists():
+        raise RuntimeError(f"ffmpeg transcode to H.264 failed: {result.stderr.strip()[:500]}")

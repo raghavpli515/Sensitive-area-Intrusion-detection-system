@@ -95,6 +95,11 @@ backend container.
 
 **Backend**
 
+Requires `ffmpeg` on `PATH` (used to re-encode processed video to real H.264
+— see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#known-limitations-stated-on-purpose-not-hidden)
+for why). Already included in the Docker image; for local dev install it
+from [ffmpeg.org](https://ffmpeg.org/download.html) or your package manager.
+
 ```bash
 cd backend
 python -m venv .venv && .venv\Scripts\activate   # or `source .venv/bin/activate` on macOS/Linux

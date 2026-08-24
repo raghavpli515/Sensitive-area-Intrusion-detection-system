@@ -2,10 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /srv
 
-# OpenCV needs a couple of shared libs even in headless mode.
+# libgl1/libglib2.0-0: OpenCV needs these even in headless mode.
+# ffmpeg: re-encodes processed videos to real H.264 so browsers can play them
+# — see services/pipeline._transcode_to_browser_compatible_mp4.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
