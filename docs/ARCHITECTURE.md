@@ -74,26 +74,34 @@ writes to a temporary file, then re-encodes with `ffmpeg -vcodec libx264`
 it. If `ffmpeg` is missing, the job fails loudly with a clear error instead
 of silently shipping an unplayable file.
 
-**Alerts are rate-limited per (track, alert type), not emitted every frame.**
-The first version fired an alert on every single frame a condition held —
-a person standing in the restricted zone for 5 seconds at 30fps produced
-~150 near-identical `zone_intrusion` alerts for one real event. `RuleEngine`
-now tracks the last frame each (track_id, alert_type) fired
-(`_should_emit`); the first occurrence always fires immediately, later ones
-are suppressed until `RuleConfig.cooldown_seconds` (default 2s) has passed,
-giving a periodic "still ongoing" heartbeat instead of per-frame spam.
-Verified on the sample video: 815 alerts before this change, 16 after, fired
-at the expected ~60-frame (2s) spacing. `line_breach` is deliberately exempt
-— crossing a line is a one-off geometric event, not a sustained condition,
-so it can't repeat the way the others can. The cooldown is frame-count based
-internally but expressed in seconds via an `fps` passed to `RuleEngine` at
-construction (the real video fps for batch jobs, an assumed ~5fps for the
-live stream matching the frontend's capture throttle) — approximate for the
-live path, since frame arrival there isn't perfectly metronomic, but close
-enough for a rate limit. Not implemented: an explicit "condition cleared"
-event when e.g. a track leaves the zone — the heartbeat model was enough to
-fix the actual problem (spam), and a full start/end lifecycle per rule is
-a reasonable next step rather than a gap in what shipped.
+**Alerts are incidents with a start and end, not a ping every frame.**
+The first version fired a fresh alert on every single frame a condition
+held — a person standing in the restricted zone for 5 seconds at 30fps
+produced ~150 near-identical `zone_intrusion` alerts for one real event. A
+first pass fixed the spam with a periodic cooldown/heartbeat (fire at most
+once per N seconds while active), which worked but still only produced a
+stream of "still happening" pings, not something that reads as a timeline.
+`RuleEngine` now models each sustained condition as an *incident*
+(`_evaluate_incident`): one `event="started"` alert the frame a (track_id,
+alert_type) condition first becomes true, nothing further while it stays
+true, and one `event="ended"` alert — carrying `duration_seconds` — the
+frame it clears. Three ways an incident closes, all handled: the condition
+becomes false while the track is still visible; the track stops appearing
+entirely, force-closed by `_close_stale_incidents` once it's been unseen for
+`RuleConfig.history_len` frames (a track lost to the tracker never evaluates
+to "false" again — it just vanishes); or processing ends while it's still
+open, closed by `finalize()`, called once after the last frame in
+`services/pipeline.run_video_job`. `line_breach` is deliberately exempt —
+crossing a line is a one-off geometric event with no "ongoing" state to
+close. Verified on the sample video: 815 alerts with the naive version, 16
+with the cooldown, 8 with the incident model — and those 8 read as an actual
+story (zone intrusion started at frame 2 / a dropped object started at
+frame 212 on track 4, was lost 30 frames later, and reappeared as track 5 —
+a real DeepSORT ID switch the timeline surfaces rather than hides / both
+still-open incidents closed out when the video ended). The frontend
+(`AlertFeed.tsx`) computes which incidents are still open by replaying
+started/ended pairs client-side and renders them in a distinct "Active now"
+section above the chronological timeline.
 
 **Zone/line geometry scales with frame size.** The restricted-zone polygon
 and perimeter line in `RuleConfig` are fractions of frame width/height, not

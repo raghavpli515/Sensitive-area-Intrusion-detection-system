@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,14 +29,9 @@ class RuleConfig:
     stationary_max_range_px: float = 15.0   # max distance between centers over `stationary_frames` to consider "stationary"
     group_distance_px: float = 100.0        # max distance between centers to consider "group gathering"
     group_min_count: int = 3                # minimum number of objects to consider "group gathering"
-    history_len: int = 30                   # length of track history to maintain
+    history_len: int = 30                   # length of track history to maintain; also how long a track
+                                             # may go unseen before its open incidents are force-closed
     weapon_class_names: frozenset[str] = frozenset({"weapon"})
-
-    # Minimum time between two alerts of the same (track, type) — e.g. a
-    # person standing in the restricted zone for 5 seconds produces one
-    # alert every `cooldown_seconds`, not one alert per frame. First
-    # occurrence of any condition always fires immediately.
-    cooldown_seconds: float = 2.0
 
 
 @dataclass
@@ -50,20 +46,25 @@ class RuleEngine:
 
     Create one instance per video-processing job or per live stream
     connection — never share an instance across independent sources.
+
+    Sustained conditions (zone intrusion, dropped object, weapon visible,
+    fast-movement burst, group gathering) are modelled as *incidents*: one
+    "started" alert when a condition first becomes true, nothing further
+    while it remains true, and one "ended" alert (with a duration) when it
+    clears — an incident timeline, not a ping every frame it holds.
+    `line_breach` is the exception: crossing a line is a one-off event with
+    no "ongoing" state, so it's always just a single "started" alert.
     """
 
     def __init__(self, config: RuleConfig | None = None, fps: float = 30.0):
         self.config = config or RuleConfig()
+        self._fps = fps
         self._history: dict[int, deque[_TrackPoint]] = defaultdict(
             lambda: deque(maxlen=self.config.history_len)
         )
-        # Cooldown is expressed in seconds in config (human-meaningful) but
-        # tracked in frames internally, since that's what we're actually
-        # counting. `fps` only needs to be approximately right — see the
-        # call sites in services/pipeline.py (real fps from the video) and
-        # api/stream.py (assumed fps matching the frontend's capture rate).
-        self._cooldown_frames = max(1, round(self.config.cooldown_seconds * fps))
-        self._last_alert_frame: dict[tuple[int | None, str], int] = {}
+        # (track_id, alert_type) -> frame the incident started on.
+        # track_id is None for the one non-per-track rule (group_gathering).
+        self._open_incidents: dict[tuple[int | None, str], int] = {}
 
     def process_frame(
         self,
@@ -87,19 +88,79 @@ class RuleEngine:
             alerts.extend(self._evaluate_track(track_id, history, zone, line, frame_id))
 
         alerts.extend(self._evaluate_group_gathering(detections, frame_id))
+        alerts.extend(self._close_stale_incidents(frame_id))
         return alerts
 
-    def _should_emit(self, track_id: int | None, alert_type: str, frame_id: int) -> bool:
-        """Rate-limits repeated alerts of the same (track, type): the first
-        occurrence always fires, later ones only after `cooldown_seconds`
-        has passed — so a condition that holds for many frames produces
-        periodic re-notifications instead of one alert per frame."""
+    def finalize(self, last_frame_id: int) -> list[Alert]:
+        """Call once after the final frame (video ended / stream closed) so
+        every "started" event has a matching "ended" one, instead of leaving
+        still-active incidents silently unresolved."""
+        alerts = []
+        for (track_id, alert_type), start_frame in list(self._open_incidents.items()):
+            duration = (last_frame_id - start_frame) / self._fps
+            who = f"track {track_id}" if track_id is not None else "group"
+            alerts.append(Alert(
+                frame=last_frame_id, type=alert_type, event="ended", track_id=track_id,
+                message=f"{_TITLES[alert_type]} still ongoing when processing ended "
+                        f"({who}, lasted {duration:.1f}s)",
+                duration_seconds=round(duration, 1),
+            ))
+        self._open_incidents.clear()
+        return alerts
+
+    def _evaluate_incident(
+        self,
+        track_id: int | None,
+        alert_type: str,
+        is_active: bool,
+        frame_id: int,
+        ended_message: Callable[[float], str],
+        started_message: str | None = None,
+    ) -> Alert | None:
+        """Turns a per-frame boolean condition into a start/end incident.
+        Returns an Alert only on the frame the state actually changes."""
         key = (track_id, alert_type)
-        last = self._last_alert_frame.get(key)
-        if last is not None and frame_id - last < self._cooldown_frames:
-            return False
-        self._last_alert_frame[key] = frame_id
-        return True
+        was_open = key in self._open_incidents
+
+        if is_active and not was_open:
+            self._open_incidents[key] = frame_id
+            return Alert(
+                frame=frame_id, type=alert_type, event="started", track_id=track_id,
+                message=started_message or f"{_TITLES[alert_type]} started"
+                        + (f" (track {track_id})" if track_id is not None else ""),
+            )
+
+        if not is_active and was_open:
+            start_frame = self._open_incidents.pop(key)
+            duration = (frame_id - start_frame) / self._fps
+            return Alert(
+                frame=frame_id, type=alert_type, event="ended", track_id=track_id,
+                message=ended_message(duration), duration_seconds=round(duration, 1),
+            )
+
+        return None
+
+    def _close_stale_incidents(self, frame_id: int) -> list[Alert]:
+        """A track that stops appearing (occlusion, lost by the tracker)
+        never evaluates to condition=False again, so its incidents would
+        stay open forever without this: force-close anything whose track
+        hasn't been seen in `history_len` frames."""
+        alerts = []
+        for (track_id, alert_type), start_frame in list(self._open_incidents.items()):
+            if track_id is None:
+                continue  # group incidents are closed by _evaluate_group_gathering itself
+            history = self._history.get(track_id)
+            last_seen = history[-1].frame if history else start_frame
+            if frame_id - last_seen > self.config.history_len:
+                duration = (last_seen - start_frame) / self._fps
+                alerts.append(Alert(
+                    frame=last_seen, type=alert_type, event="ended", track_id=track_id,
+                    message=f"{_TITLES[alert_type]} ended — track {track_id} lost "
+                            f"(lasted {duration:.1f}s)",
+                    duration_seconds=round(duration, 1),
+                ))
+                del self._open_incidents[(track_id, alert_type)]
+        return alerts
 
     # -- per-track rules ----------------------------------------------------
 
@@ -115,36 +176,38 @@ class RuleEngine:
         latest = history[-1]
         curr_center = self._center(latest.bbox)
 
-        if latest.class_name.lower() in self.config.weapon_class_names \
-                and self._should_emit(track_id, "weapon_detected", frame_id):
-            alerts.append(Alert(
-                frame=frame_id, type="weapon_detected",
-                message=f"Weapon detected (track {track_id})", track_id=track_id,
-            ))
+        weapon_active = latest.class_name.lower() in self.config.weapon_class_names
+        alert = self._evaluate_incident(
+            track_id, "weapon_detected", weapon_active, frame_id,
+            ended_message=lambda d: f"Weapon no longer visible (track {track_id}, was visible for {d:.1f}s)",
+        )
+        if alert:
+            alerts.append(alert)
 
-        if self._inside_zone(curr_center, zone) \
-                and self._should_emit(track_id, "zone_intrusion", frame_id):
-            alerts.append(Alert(
-                frame=frame_id, type="zone_intrusion",
-                message=f"Restricted zone intrusion (track {track_id})", track_id=track_id,
-            ))
+        zone_active = self._inside_zone(curr_center, zone)
+        alert = self._evaluate_incident(
+            track_id, "zone_intrusion", zone_active, frame_id,
+            ended_message=lambda d: f"Restricted zone intrusion ended (track {track_id}, lasted {d:.1f}s)",
+        )
+        if alert:
+            alerts.append(alert)
 
         if len(history) >= 2:
             prev_center = self._center(history[-2].bbox)
             speed = float(np.linalg.norm(np.array(curr_center) - np.array(prev_center)))
 
-            if speed > self.config.speed_threshold_px and latest.class_name.lower() == "person" \
-                    and self._should_emit(track_id, "fast_movement", frame_id):
-                alerts.append(Alert(
-                    frame=frame_id, type="fast_movement",
-                    message=f"Fast movement detected (track {track_id}, "
-                            f"~{speed:.0f}px/frame)",
-                    track_id=track_id,
-                ))
+            fast_active = speed > self.config.speed_threshold_px and latest.class_name.lower() == "person"
+            alert = self._evaluate_incident(
+                track_id, "fast_movement", fast_active, frame_id,
+                started_message=f"Fast movement started (track {track_id}, ~{speed:.0f}px/frame)",
+                ended_message=lambda d: f"Fast movement ended (track {track_id}, lasted {d:.1f}s)",
+            )
+            if alert:
+                alerts.append(alert)
 
-            # Not rate-limited: crossing a line is a one-off geometric event
-            # (prev/curr straddling it), not a sustained condition, so it
-            # can't repeat every frame the way the others can.
+            # Not an incident: crossing a line is a one-off geometric event
+            # (prev/curr straddling it), not a sustained condition — there's
+            # no "ended" state to pair it with.
             if self._line_crossed(prev_center, curr_center, line):
                 alerts.append(Alert(
                     frame=frame_id, type="line_breach",
@@ -154,37 +217,46 @@ class RuleEngine:
         if len(history) >= self.config.stationary_frames:
             recent = list(history)[-self.config.stationary_frames:]
             centers = np.array([self._center(p.bbox) for p in recent])
-            if np.all(np.ptp(centers, axis=0) < self.config.stationary_max_range_px) \
-                    and self._should_emit(track_id, "dropped_object", frame_id):
-                alerts.append(Alert(
-                    frame=frame_id, type="dropped_object",
-                    message=f"Object stationary for {self.config.stationary_frames}+ frames "
-                            f"(track {track_id}) — possibly dropped/abandoned",
-                    track_id=track_id,
-                ))
+            stationary_active = bool(np.all(np.ptp(centers, axis=0) < self.config.stationary_max_range_px))
+            alert = self._evaluate_incident(
+                track_id, "dropped_object", stationary_active, frame_id,
+                started_message=f"Object stationary for {self.config.stationary_frames}+ frames "
+                                 f"(track {track_id}) — possibly dropped/abandoned",
+                ended_message=lambda d: f"Previously dropped/abandoned object moved again "
+                                         f"(track {track_id}, was stationary for {d:.1f}s)",
+            )
+            if alert:
+                alerts.append(alert)
 
         return alerts
 
     def _evaluate_group_gathering(self, detections: list[Detection], frame_id: int) -> list[Alert]:
-        if len(detections) < self.config.group_min_count:
-            return []
+        is_active = False
+        representative_center: tuple[float, float] | None = None
 
-        centers = [self._center(d.bbox) for d in detections]
-        for i, center in enumerate(centers):
-            nearby = sum(
-                1 for j, other in enumerate(centers)
-                if j != i
-                and np.linalg.norm(np.array(center) - np.array(other)) < self.config.group_distance_px
-            )
-            if nearby + 1 >= self.config.group_min_count:
-                if not self._should_emit(None, "group_gathering", frame_id):
-                    return []
-                return [Alert(
-                    frame=frame_id, type="group_gathering",
-                    message=f"Group gathering detected near "
-                            f"({center[0]:.0f}, {center[1]:.0f})",
-                )]
-        return []
+        if len(detections) >= self.config.group_min_count:
+            centers = [self._center(d.bbox) for d in detections]
+            for i, center in enumerate(centers):
+                nearby = sum(
+                    1 for j, other in enumerate(centers)
+                    if j != i
+                    and np.linalg.norm(np.array(center) - np.array(other)) < self.config.group_distance_px
+                )
+                if nearby + 1 >= self.config.group_min_count:
+                    is_active = True
+                    representative_center = center
+                    break
+
+        started_message = (
+            f"Group gathering detected near ({representative_center[0]:.0f}, {representative_center[1]:.0f})"
+            if representative_center else None
+        )
+        alert = self._evaluate_incident(
+            None, "group_gathering", is_active, frame_id,
+            started_message=started_message,
+            ended_message=lambda d: f"Group gathering dispersed (lasted {d:.1f}s)",
+        )
+        return [alert] if alert else []
 
     # -- geometry helpers -----------------------------------------------------
 
@@ -209,6 +281,15 @@ class RuleEngine:
         if prev == curr:
             return False
         return LineString([prev, curr]).crosses(line)
+
+
+_TITLES = {
+    "weapon_detected": "Weapon detection",
+    "zone_intrusion": "Restricted zone intrusion",
+    "fast_movement": "Fast movement",
+    "dropped_object": "Dropped/abandoned object",
+    "group_gathering": "Group gathering",
+}
 
 
 # ---------------------------------------------------------------------------

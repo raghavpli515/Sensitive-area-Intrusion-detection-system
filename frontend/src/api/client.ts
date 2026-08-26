@@ -14,6 +14,11 @@ export interface Alert {
   type: string;
   message: string;
   track_id: number | null;
+  // "started": a condition just began. "ended": it just cleared (or the
+  // track was lost, or processing finished while it was still active).
+  // One-off events (line_breach) are always "started" with no "ended".
+  event: "started" | "ended";
+  duration_seconds: number | null; // set only on "ended"
 }
 
 export interface JobStatus {

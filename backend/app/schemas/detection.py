@@ -17,6 +17,13 @@ class Alert(BaseModel):
     type: str
     message: str
     track_id: int | None = None
+    # "started": a condition (e.g. zone intrusion) just began.
+    # "ended": it just stopped — either the condition cleared, the track
+    # was lost, or processing ended while it was still active.
+    # One-off events (line_breach) are always "started" with no matching
+    # "ended", since there's no sustained state to close.
+    event: str = "started"
+    duration_seconds: float | None = None  # set only on "ended" events
 
 
 class JobStatus(BaseModel):

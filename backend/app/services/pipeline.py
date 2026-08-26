@@ -128,6 +128,12 @@ def run_video_job(job, input_path: Path, output_path: Path, confidence_threshold
         cap.release()
         writer.release()
 
+    if frame_id > 0:
+        # Close out any incidents still open at end-of-video (e.g. the
+        # intrusion was still ongoing in the last frame) so every "started"
+        # alert has a matching "ended" one in the timeline.
+        job.alerts.extend(rule_engine.finalize(frame_id - 1))
+
     _transcode_to_browser_compatible_mp4(raw_path, output_path)
     raw_path.unlink(missing_ok=True)
     job.output_path = output_path
