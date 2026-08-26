@@ -22,6 +22,11 @@ from app.services.pipeline import process_frame
 
 router = APIRouter(tags=["Live Stream"])
 
+# The client throttles webcam capture to ~5 fps (frontend/src/pages/LivePage.tsx,
+# CAPTURE_INTERVAL_MS=200) — used only to convert RuleConfig.cooldown_seconds
+# into a frame count for this connection's alert rate-limiting.
+ASSUMED_LIVE_STREAM_FPS = 5.0
+
 
 @router.websocket("/ws/stream")
 async def stream_endpoint(websocket: WebSocket):
@@ -34,7 +39,7 @@ async def stream_endpoint(websocket: WebSocket):
         return
 
     tracker = ObjectTracker()
-    rule_engine = RuleEngine()
+    rule_engine = RuleEngine(fps=ASSUMED_LIVE_STREAM_FPS)
     frame_id = 0
 
     try:

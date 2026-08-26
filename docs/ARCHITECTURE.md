@@ -74,6 +74,27 @@ writes to a temporary file, then re-encodes with `ffmpeg -vcodec libx264`
 it. If `ffmpeg` is missing, the job fails loudly with a clear error instead
 of silently shipping an unplayable file.
 
+**Alerts are rate-limited per (track, alert type), not emitted every frame.**
+The first version fired an alert on every single frame a condition held —
+a person standing in the restricted zone for 5 seconds at 30fps produced
+~150 near-identical `zone_intrusion` alerts for one real event. `RuleEngine`
+now tracks the last frame each (track_id, alert_type) fired
+(`_should_emit`); the first occurrence always fires immediately, later ones
+are suppressed until `RuleConfig.cooldown_seconds` (default 2s) has passed,
+giving a periodic "still ongoing" heartbeat instead of per-frame spam.
+Verified on the sample video: 815 alerts before this change, 16 after, fired
+at the expected ~60-frame (2s) spacing. `line_breach` is deliberately exempt
+— crossing a line is a one-off geometric event, not a sustained condition,
+so it can't repeat the way the others can. The cooldown is frame-count based
+internally but expressed in seconds via an `fps` passed to `RuleEngine` at
+construction (the real video fps for batch jobs, an assumed ~5fps for the
+live stream matching the frontend's capture throttle) — approximate for the
+live path, since frame arrival there isn't perfectly metronomic, but close
+enough for a rate limit. Not implemented: an explicit "condition cleared"
+event when e.g. a track leaves the zone — the heartbeat model was enough to
+fix the actual problem (spam), and a full start/end lifecycle per rule is
+a reasonable next step rather than a gap in what shipped.
+
 **Zone/line geometry scales with frame size.** The restricted-zone polygon
 and perimeter line in `RuleConfig` are fractions of frame width/height, not
 absolute pixels, so the same config works for a 640×360 webcam and a

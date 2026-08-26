@@ -80,7 +80,6 @@ def run_video_job(job, input_path: Path, output_path: Path, confidence_threshold
         raise RuntimeError("Detector not initialized — model failed to load at startup")
 
     tracker = ObjectTracker()
-    rule_engine = RuleEngine()
 
     cap = cv2.VideoCapture(str(input_path))
     if not cap.isOpened():
@@ -90,6 +89,10 @@ def run_video_job(job, input_path: Path, output_path: Path, confidence_threshold
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # Real fps from the source video, so alert cooldowns are wall-clock
+    # accurate (e.g. "at most one zone_intrusion alert per 2 seconds")
+    # rather than an arbitrary frame count.
+    rule_engine = RuleEngine(fps=fps)
     job.total_frames = total_frames
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

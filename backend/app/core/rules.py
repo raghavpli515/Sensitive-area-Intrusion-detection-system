@@ -31,6 +31,12 @@ class RuleConfig:
     history_len: int = 30                   # length of track history to maintain
     weapon_class_names: frozenset[str] = frozenset({"weapon"})
 
+    # Minimum time between two alerts of the same (track, type) — e.g. a
+    # person standing in the restricted zone for 5 seconds produces one
+    # alert every `cooldown_seconds`, not one alert per frame. First
+    # occurrence of any condition always fires immediately.
+    cooldown_seconds: float = 2.0
+
 
 @dataclass
 class _TrackPoint:
@@ -46,11 +52,18 @@ class RuleEngine:
     connection — never share an instance across independent sources.
     """
 
-    def __init__(self, config: RuleConfig | None = None):
+    def __init__(self, config: RuleConfig | None = None, fps: float = 30.0):
         self.config = config or RuleConfig()
         self._history: dict[int, deque[_TrackPoint]] = defaultdict(
             lambda: deque(maxlen=self.config.history_len)
         )
+        # Cooldown is expressed in seconds in config (human-meaningful) but
+        # tracked in frames internally, since that's what we're actually
+        # counting. `fps` only needs to be approximately right — see the
+        # call sites in services/pipeline.py (real fps from the video) and
+        # api/stream.py (assumed fps matching the frontend's capture rate).
+        self._cooldown_frames = max(1, round(self.config.cooldown_seconds * fps))
+        self._last_alert_frame: dict[tuple[int | None, str], int] = {}
 
     def process_frame(
         self,
@@ -76,6 +89,18 @@ class RuleEngine:
         alerts.extend(self._evaluate_group_gathering(detections, frame_id))
         return alerts
 
+    def _should_emit(self, track_id: int | None, alert_type: str, frame_id: int) -> bool:
+        """Rate-limits repeated alerts of the same (track, type): the first
+        occurrence always fires, later ones only after `cooldown_seconds`
+        has passed — so a condition that holds for many frames produces
+        periodic re-notifications instead of one alert per frame."""
+        key = (track_id, alert_type)
+        last = self._last_alert_frame.get(key)
+        if last is not None and frame_id - last < self._cooldown_frames:
+            return False
+        self._last_alert_frame[key] = frame_id
+        return True
+
     # -- per-track rules ----------------------------------------------------
 
     def _evaluate_track(
@@ -90,13 +115,15 @@ class RuleEngine:
         latest = history[-1]
         curr_center = self._center(latest.bbox)
 
-        if latest.class_name.lower() in self.config.weapon_class_names:
+        if latest.class_name.lower() in self.config.weapon_class_names \
+                and self._should_emit(track_id, "weapon_detected", frame_id):
             alerts.append(Alert(
                 frame=frame_id, type="weapon_detected",
                 message=f"Weapon detected (track {track_id})", track_id=track_id,
             ))
 
-        if self._inside_zone(curr_center, zone):
+        if self._inside_zone(curr_center, zone) \
+                and self._should_emit(track_id, "zone_intrusion", frame_id):
             alerts.append(Alert(
                 frame=frame_id, type="zone_intrusion",
                 message=f"Restricted zone intrusion (track {track_id})", track_id=track_id,
@@ -106,7 +133,8 @@ class RuleEngine:
             prev_center = self._center(history[-2].bbox)
             speed = float(np.linalg.norm(np.array(curr_center) - np.array(prev_center)))
 
-            if speed > self.config.speed_threshold_px and latest.class_name.lower() == "person":
+            if speed > self.config.speed_threshold_px and latest.class_name.lower() == "person" \
+                    and self._should_emit(track_id, "fast_movement", frame_id):
                 alerts.append(Alert(
                     frame=frame_id, type="fast_movement",
                     message=f"Fast movement detected (track {track_id}, "
@@ -114,6 +142,9 @@ class RuleEngine:
                     track_id=track_id,
                 ))
 
+            # Not rate-limited: crossing a line is a one-off geometric event
+            # (prev/curr straddling it), not a sustained condition, so it
+            # can't repeat every frame the way the others can.
             if self._line_crossed(prev_center, curr_center, line):
                 alerts.append(Alert(
                     frame=frame_id, type="line_breach",
@@ -123,7 +154,8 @@ class RuleEngine:
         if len(history) >= self.config.stationary_frames:
             recent = list(history)[-self.config.stationary_frames:]
             centers = np.array([self._center(p.bbox) for p in recent])
-            if np.all(np.ptp(centers, axis=0) < self.config.stationary_max_range_px):
+            if np.all(np.ptp(centers, axis=0) < self.config.stationary_max_range_px) \
+                    and self._should_emit(track_id, "dropped_object", frame_id):
                 alerts.append(Alert(
                     frame=frame_id, type="dropped_object",
                     message=f"Object stationary for {self.config.stationary_frames}+ frames "
@@ -145,6 +177,8 @@ class RuleEngine:
                 and np.linalg.norm(np.array(center) - np.array(other)) < self.config.group_distance_px
             )
             if nearby + 1 >= self.config.group_min_count:
+                if not self._should_emit(None, "group_gathering", frame_id):
+                    return []
                 return [Alert(
                     frame=frame_id, type="group_gathering",
                     message=f"Group gathering detected near "

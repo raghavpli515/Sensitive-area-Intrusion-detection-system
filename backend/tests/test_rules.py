@@ -125,6 +125,42 @@ def test_separate_engines_do_not_share_track_history():
     assert engine_b._history == {}  # noqa: SLF001 - verifying isolation is the point of this test
 
 
+def test_zone_intrusion_does_not_repeat_every_frame_within_cooldown():
+    """Regression test: a sustained condition used to fire one alert per
+    frame (e.g. ~150 near-identical alerts for a 5s intrusion at 30fps).
+    It should now fire once, then stay quiet until the cooldown elapses."""
+    whole_frame_zone = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+    config = RuleConfig(zone_fractions=whole_frame_zone, cooldown_seconds=1.0)
+    engine = RuleEngine(config, fps=10.0)  # cooldown = 10 frames
+    det = [Detection(track_id=1, class_name="person", confidence=0.9, bbox=[100, 100, 120, 120])]
+
+    fire_counts = []
+    for frame in range(25):
+        alerts = engine.process_frame(frame, det, 640, 480)
+        fire_counts.append(sum(1 for a in alerts if a.type == "zone_intrusion"))
+
+    # Fires on frame 0 (first occurrence) and again on frame 10 (cooldown
+    # elapsed), not on every one of the 25 frames.
+    assert fire_counts[0] == 1
+    assert sum(fire_counts[1:10]) == 0
+    assert fire_counts[10] == 1
+    assert sum(fire_counts) < 5  # nowhere near "one per frame"
+
+
+def test_different_tracks_have_independent_cooldowns():
+    whole_frame_zone = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+    engine = RuleEngine(RuleConfig(zone_fractions=whole_frame_zone, cooldown_seconds=10.0), fps=30.0)
+    dets = [
+        Detection(track_id=1, class_name="person", confidence=0.9, bbox=[10, 10, 20, 20]),
+        Detection(track_id=2, class_name="person", confidence=0.9, bbox=[30, 30, 40, 40]),
+    ]
+
+    alerts = engine.process_frame(0, dets, 640, 480)
+
+    zone_alert_track_ids = {a.track_id for a in alerts if a.type == "zone_intrusion"}
+    assert zone_alert_track_ids == {1, 2}  # both fire on first occurrence, independently
+
+
 def test_is_arms_flaring_pure_function():
     flared = {
         "left_wrist": (10, 5), "right_wrist": (90, 5),
