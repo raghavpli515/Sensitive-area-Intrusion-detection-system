@@ -7,9 +7,14 @@ python-multipart==0.0.32
 websockets==16.1.1
 
 # ML / CV pipeline
+# opencv-python, not -headless: ultralytics hard-depends on opencv-python
+# itself, so pinning -headless here doesn't replace it — pip installs both
+# (they're different package names that both provide `cv2`), and whichever
+# lands second on disk silently wins the import. Pin the one ultralytics
+# actually wants so there's exactly one, at a version this is tested against.
 ultralytics==8.3.124
 torch==2.7.1
-opencv-python-headless==4.11.0.86
+opencv-python==4.11.0.86
 deep-sort-realtime==1.3.2
 shapely==2.1.0
 numpy==2.2.5

@@ -20,6 +20,12 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
+      # Matches backend/Dockerfile: ffmpeg is required by
+      # services/pipeline._transcode_to_browser_compatible_mp4 and its
+      # tests. GitHub-hosted ubuntu-latest runners do not ship it.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
