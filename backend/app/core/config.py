@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # -- Storage --
     upload_dir: Path = BASE_DIR / "data" / "uploads"
     output_dir: Path = BASE_DIR / "outputs"
+    max_upload_mb: int = 500  # rejects mid-stream; see utils/video_io.save_upload
 
     # -- API --
     cors_origins: list[str] = [

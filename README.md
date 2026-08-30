@@ -12,8 +12,9 @@ breach, fast movement, abandoned/dropped objects, weapon detection, group
 gathering), served over a **FastAPI** backend with a **React** frontend for
 both batch video upload and live webcam streaming.
 
-![Sample detection output](docs/assets/sample_detection.jpg)
-*Real output from this pipeline — not a mockup — on a drone-view test clip.*
+![Demo: upload a clip, get an annotated video and an incident timeline](docs/assets/demo.gif)
+*Real screen recording of this app — upload → job progress → annotated
+video + alert timeline — sped up ~3x for length, nothing else altered.*
 
 ## Why this exists
 
@@ -134,6 +135,17 @@ Without a model file present, the backend still starts — `/health` will
 report `model_loaded: false` and inference endpoints will fail until weights
 are available. This is intentional (see `backend/tests/test_api.py`).
 
+## Alerts read as an incident timeline, not a ping per frame
+
+A condition that holds for 500 frames doesn't produce 500 alerts. Each rule
+(zone intrusion, weapon detected, fast movement, dropped object, group
+gathering) is modeled as an incident: one `started` alert the moment it
+becomes true, nothing further while it's still true, and one `ended` alert
+with a `duration_seconds` when it clears (or the track is lost, or
+processing ends while it's still open — every `started` gets a matching
+`ended`). `line_breach` is the one exception: crossing a line is a
+single instantaneous event, not a sustained state.
+
 ## API
 
 | Endpoint | Description |
@@ -151,7 +163,9 @@ running.
 
 ```bash
 cd backend
-pytest -q      # 16 tests: rule-engine unit tests + API contract tests, no model required
+pytest -q      # 27 tests: rule-engine + incident-lifecycle unit tests, pipeline
+               # codec-failure handling, upload-size limits, API contract
+               # tests — no model required
 ruff check .
 ```
 

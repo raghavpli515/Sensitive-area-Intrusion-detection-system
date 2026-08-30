@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.schemas.detection import JobStatus
 from app.services.jobs import Job, job_store
 from app.services.pipeline import run_video_job
-from app.utils.video_io import save_upload
+from app.utils.video_io import UploadTooLarge, save_upload
 
 router = APIRouter(prefix="/infer/video", tags=["Video Inference"])
 
@@ -32,7 +32,13 @@ async def submit_video(file: UploadFile = File(...), confidence_threshold: float
 
     job = job_store.create()
     input_path = settings.upload_dir / f"{job.id}{suffix}"
-    save_upload(file.file, input_path)
+    try:
+        save_upload(file.file, input_path, max_bytes=settings.max_upload_mb * 1024 * 1024)
+    except UploadTooLarge:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {settings.max_upload_mb}MB upload limit",
+        ) from None
     output_path = settings.output_dir / f"{job.id}.mp4"
 
     job_store.run_in_background(

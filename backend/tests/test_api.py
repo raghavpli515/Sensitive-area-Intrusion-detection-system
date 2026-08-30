@@ -19,6 +19,7 @@ os.environ.setdefault("IDS_MODEL_PATH", "__no_such_model__.pt")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.core.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -48,6 +49,21 @@ def test_video_upload_rejects_unsupported_extension(client):
         files={"file": ("not_a_video.txt", io.BytesIO(b"hello"), "text/plain")},
     )
     assert resp.status_code == 400
+
+
+def test_video_upload_rejects_file_over_the_configured_limit(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "max_upload_mb", 0)
+    # Redirect uploads to a scratch dir so this test can't leave a stray
+    # partial file behind in the real data/uploads/.
+    monkeypatch.setattr(settings, "upload_dir", tmp_path)
+
+    resp = client.post(
+        "/infer/video",
+        files={"file": ("clip.mp4", io.BytesIO(b"x" * 2048), "video/mp4")},
+    )
+
+    assert resp.status_code == 413
+    assert list(tmp_path.iterdir()) == []  # partial upload must not be left on disk
 
 
 def test_job_status_404_for_unknown_id(client):
