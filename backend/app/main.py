@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.health import router as health_router
 from app.api.stream import router as stream_router
@@ -53,7 +54,13 @@ app.include_router(health_router)
 app.include_router(video_router)
 app.include_router(stream_router)
 
-
-@app.get("/")
-def root():
-    return {"message": "AI Surveillance Backend is running", "status": "OK"}
+if settings.frontend_dist_dir and settings.frontend_dist_dir.is_dir():
+    # Single-container deploy (e.g. the Hugging Face Space): serve the built
+    # frontend from this same process, mounted last so it only catches
+    # paths none of the API routes above already matched. "/" then serves
+    # the app's index.html instead of the JSON status message below.
+    app.mount("/", StaticFiles(directory=str(settings.frontend_dist_dir), html=True), name="frontend")
+else:
+    @app.get("/")
+    def root():
+        return {"message": "AI Surveillance Backend is running", "status": "OK"}

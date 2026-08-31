@@ -38,6 +38,12 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
+    # Single-container deploys (e.g. the Hugging Face Space) build the
+    # frontend into a static bundle and point this at it; main.py mounts it
+    # if set. Unset (the default) preserves the normal setup — frontend and
+    # backend as separate processes/services (local dev, Docker Compose).
+    frontend_dist_dir: Path | None = None
+
     def resolved_device(self) -> str:
         if self.device != "auto":
             return self.device

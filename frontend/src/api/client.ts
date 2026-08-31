@@ -1,6 +1,8 @@
-// Typed wrapper around the backend API. The base URL comes from an env var
-// so the same build works in local dev (Vite proxy or direct localhost) and
-// in Docker Compose (service-name hostname) without code changes.
+// Typed wrapper around the backend API. The base URL comes from an env var,
+// empty/unset meaning "same origin as the page" (used when the backend
+// serves the built frontend itself — see app.main's static-file mount) —
+// so the same build works in local dev, Docker Compose, and a single-
+// container deploy (e.g. Hugging Face Spaces) without code changes.
 
 export interface Detection {
   track_id: number;
@@ -32,6 +34,10 @@ export interface JobStatus {
   output_video_url: string | null;
 }
 
+// Defaults to the local backend for zero-config `npm run dev`. Deploys that
+// serve the frontend and API from the same origin (e.g. the Hugging Face
+// Space image) set VITE_API_URL="" at build time to get same-origin
+// requests instead — see deploy/huggingface/Dockerfile.
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 export function resolveUrl(path: string): string {
@@ -72,7 +78,11 @@ export function jobVideoUrl(jobId: string): string {
 }
 
 export function streamSocketUrl(): string {
-  const url = new URL(resolveUrl("/ws/stream"));
+  // Second arg as base: harmless when resolveUrl() already returned an
+  // absolute URL (the URL constructor ignores the base then), required
+  // when it returned a same-origin relative path (empty VITE_API_URL) —
+  // `new URL("/ws/stream")` with no base throws.
+  const url = new URL(resolveUrl("/ws/stream"), window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
