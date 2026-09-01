@@ -3,14 +3,19 @@
 [![CI](https://github.com/raghavpli515/Sensitive-area-Intrusion-detection-system/actions/workflows/ci.yml/badge.svg)](https://github.com/raghavpli515/Sensitive-area-Intrusion-detection-system/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Live Demo](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20Demo-Hugging%20Face%20Space-blue)](https://huggingface.co/spaces/PimoLee5/intrusion-detection-system)
+[![Demo Video](https://img.shields.io/badge/%E2%96%B6%EF%B8%8F%20Demo%20Video-YouTube-red)](https://youtu.be/AlxbYcq7480)
 
-**[Try the live demo](https://huggingface.co/spaces/PimoLee5/intrusion-detection-system)** —
-upload a video, no setup required. Runs on a free Hugging Face Space
-(Gradio + ZeroGPU); see [deploy/huggingface-gradio/](deploy/huggingface-gradio/)
-for what that build drops versus the full app below (async job API,
-live-webcam mode) and why. Free ZeroGPU has a small shared daily quota —
-if the demo says you've exceeded it, that's the free tier, not the app;
-it resets on its own. <!-- TODO: demo video link once recorded -->
+**[Try the live demo](https://huggingface.co/spaces/PimoLee5/intrusion-detection-system)**
+— upload a video, no setup required — or **[watch the demo video](https://youtu.be/AlxbYcq7480)**
+for a guaranteed, no-wait walkthrough of the full app (upload flow, live
+webcam, incident timeline).
+
+The live demo runs on a free Hugging Face Space (Gradio + ZeroGPU); see
+[deploy/huggingface-gradio/](deploy/huggingface-gradio/) for what that
+build drops versus the full app below (async job API, live-webcam mode)
+and why. Free ZeroGPU has a small shared daily quota — if it says you've
+exceeded it, that's the free tier, not the app; it resets on its own,
+and the video above always works regardless.
 
 A computer-vision system for detecting intrusions into restricted/sensitive
 areas — perimeter fences, border zones, restricted facilities — from
