@@ -2,6 +2,13 @@
 
 [![CI](https://github.com/raghavpli515/Sensitive-area-Intrusion-detection-system/actions/workflows/ci.yml/badge.svg)](https://github.com/raghavpli515/Sensitive-area-Intrusion-detection-system/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20Demo-Hugging%20Face%20Space-blue)](https://huggingface.co/spaces/PimoLee5/intrusion-detection-system)
+
+**[Try the live demo](https://huggingface.co/spaces/PimoLee5/intrusion-detection-system)** —
+upload a video, no setup required. Runs on a free Hugging Face Space
+(Gradio + ZeroGPU); see [deploy/huggingface-gradio/](deploy/huggingface-gradio/)
+for what that build drops versus the full app below (async job API,
+live-webcam mode) and why.
 
 A computer-vision system for detecting intrusions into restricted/sensitive
 areas — perimeter fences, border zones, restricted facilities — from

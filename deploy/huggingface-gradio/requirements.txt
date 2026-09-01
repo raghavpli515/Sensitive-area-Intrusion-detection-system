@@ -1,0 +1,30 @@
+# Deliberately NOT forcing a CPU-only torch build here (unlike
+# deploy/huggingface/Dockerfile): this Space runs on ZeroGPU hardware, and
+# demo.py's @spaces.GPU-decorated function moves the model onto a real,
+# temporarily-attached GPU when one's available — it needs a CUDA-capable
+# torch to do that. ZeroGPU also only accepts specific exact torch versions
+# (checked at build time).
+#
+# Pin is exact and paired: torchvision 0.26.0 declares torch==2.11.0 as its
+# only compatible torch (checked via PyPI metadata, not guessed), and
+# 2.11.0 is in ZeroGPU's supported set (2.8.0/2.9.1/2.10.0/2.11.0 — the
+# platform's error message names these explicitly if this ever needs
+# revisiting).
+gradio==6.26.0
+# No explicit pydantic pin: gradio[mcp] (an extra HF injects at build time
+# on this platform) requires pydantic>=2.11.10,<=2.12.5, which our earlier
+# pin of 2.11.4 fell below — a self-inflicted conflict. Our own code only
+# needs plain BaseModel support, so let gradio/spaces resolve a compatible
+# version themselves instead of fighting their constraint with a stale one.
+#
+# No version pin on `spaces` either, for the same reason: HF injects its
+# own spaces==X constraint at build time regardless of what's pinned here,
+# so pinning a version here risks the exact same class of conflict.
+spaces
+ultralytics==8.3.124
+torch==2.11.0
+torchvision==0.26.0
+opencv-python==4.11.0.86
+deep-sort-realtime==1.3.2
+shapely==2.1.0
+numpy==2.2.5
