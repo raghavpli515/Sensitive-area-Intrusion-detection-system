@@ -38,7 +38,7 @@ _detector.load()
 registry.yolo_detector = _detector
 
 
-@spaces.GPU(duration=120)
+@spaces.GPU(duration=60)  # short clips finish well under this; smaller asks stretch the free daily quota further
 def _run_pipeline(video_path: str, confidence_threshold: float, output_path: Path) -> Job:
     if torch.cuda.is_available():
         _detector.model.to("cuda")

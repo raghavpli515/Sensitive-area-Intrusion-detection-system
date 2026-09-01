@@ -8,7 +8,9 @@
 upload a video, no setup required. Runs on a free Hugging Face Space
 (Gradio + ZeroGPU); see [deploy/huggingface-gradio/](deploy/huggingface-gradio/)
 for what that build drops versus the full app below (async job API,
-live-webcam mode) and why.
+live-webcam mode) and why. Free ZeroGPU has a small shared daily quota —
+if the demo says you've exceeded it, that's the free tier, not the app;
+it resets on its own. <!-- TODO: demo video link once recorded -->
 
 A computer-vision system for detecting intrusions into restricted/sensitive
 areas — perimeter fences, border zones, restricted facilities — from

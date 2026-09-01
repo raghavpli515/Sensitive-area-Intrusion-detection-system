@@ -23,6 +23,11 @@ condition starts, one when it ends, not a ping every frame.
 for the duration of each detection run, so the first request after a
 period of inactivity may pause briefly while one is attached.
 
+Free ZeroGPU comes with a small **shared daily quota**. If you see
+`"You have exceeded your ZeroGPU quota"`, that's this — not the app
+breaking — and it resets on its own (the error message gives a countdown).
+A demo video is linked from the main README for exactly this reason.
+
 This Gradio demo covers the upload flow only. The full project — including
 a live-webcam mode, an async job-polling API, Docker Compose, tests, and
 CI — is the real deliverable:
